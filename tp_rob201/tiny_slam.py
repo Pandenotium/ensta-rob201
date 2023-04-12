@@ -166,6 +166,20 @@ class TinySlam:
         pose : [x, y, theta] nparray, corrected pose in world coordinates
         """
         # TODO for TP3
+        dis = lidar.get_sensor_values()
+        ang = lidar.get_ray_angles()
+        lidar_corr = []
+
+        for i in range(len(dis)):
+            lidar_corr.append([pose[0] + np.cos(ang[i] + pose[2]) * dis[i], pose[1] + np.sin(ang[i] + pose[2]) * dis[i]])
+
+        lidar_corr = np.array(lidar_corr)
+        for item in lidar_corr:
+            dis_l = np.sqrt((item[0] - pose[0])**2 + (item[1] - pose[1])**2)
+            self.add_map_line(pose[0], pose[1], item[0] - 10*(item[0] - pose[0])/dis_l, item[1] - 10*(item[1]- pose[1])/dis_l, -1)
+        self.add_map_points(lidar_corr[:,0], lidar_corr[:,1], 1)
+        self.occupancy_map[self.occupancy_map <= -1.99] = -1.99
+        self.occupancy_map[self.occupancy_map >= 1.99] = 1.99
 
 
     def plan(self, start, goal):
@@ -254,6 +268,7 @@ class TinySlam:
         """
         # TODO
 
+    '''
     def compute(self):
         """ Useless function, just for the exercise on using the profiler """
         # Remove after TP1
@@ -267,3 +282,4 @@ class TinySlam:
             pt_x = ranges[i] * np.cos(ray_angles[i])
             pt_y = ranges[i] * np.sin(ray_angles[i])
             points.append([pt_x,pt_y])
+    '''

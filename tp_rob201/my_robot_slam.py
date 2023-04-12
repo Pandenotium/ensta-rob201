@@ -11,6 +11,7 @@ from place_bot.entities.lidar import LidarParams
 from tiny_slam import TinySlam
 
 from control import reactive_obst_avoid
+from control import potential_field_control
 
 
 # Definition of our robot controller
@@ -45,9 +46,15 @@ class MyRobotSlam(RobotAbstract):
         """
         self.counter += 1
 
-        self.tiny_slam.compute()
+        #self.tiny_slam.compute()
+
+        if self.counter % 10 == 0:
+            self.tiny_slam.update_map(self.lidar(), self.odometer_values())
+        
+        self.tiny_slam.display2(self.odometer_values())
 
         # Compute new command speed to perform obstacle avoidance
-        command = reactive_obst_avoid(self.lidar())
+        #command = reactive_obst_avoid(self.lidar())
+        command = potential_field_control(self.lidar(), self.odometer_values(), [100, 100, 1])
 
         return command

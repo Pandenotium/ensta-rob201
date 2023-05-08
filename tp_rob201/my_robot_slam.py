@@ -48,13 +48,41 @@ class MyRobotSlam(RobotAbstract):
 
         #self.tiny_slam.compute()
 
+        '''
+        TP3
         if self.counter % 10 == 0:
             self.tiny_slam.update_map(self.lidar(), self.odometer_values())
+        '''
+
+        if self.counter == 1:
+            self.tiny_slam.update_map(self.lidar(), self.odometer_values())
+        if self.counter % 20 == 0:
+            score = self.tiny_slam.localise(self.lidar(), self.odometer_values())
+            if score >= 50:
+                self.tiny_slam.update_map(self.lidar(), self.odometer_values())
+                print("Map updated: score", score)
+
+        if self.counter % 1000 == 0:
+            start = self.tiny_slam.get_corrected_pose(self.odometer_values())
+            start = self.tiny_slam._conv_world_to_map(start[0], start[1])
+            goal = self.tiny_slam._conv_world_to_map(0, 0)
+            print("Target map value: ", self.tiny_slam.occupancy_map[goal[0], goal[1]])
+            print(start, goal)
+            route = self.tiny_slam.plan(start, goal)
+            print(route)
         
         self.tiny_slam.display2(self.odometer_values())
 
         # Compute new command speed to perform obstacle avoidance
-        #command = reactive_obst_avoid(self.lidar())
-        command = potential_field_control(self.lidar(), self.odometer_values(), [100, 100, 1])
+        if self.tiny_slam.path is None:
+            command = reactive_obst_avoid(self.lidar())
+        else:
+            aim = self.tiny_slam._conv_map_to_world(self.tiny_slam.path[0, 0], self.tiny_slam.path[0, 1])
+            command = potential_field_control(self.lidar(), self.odometer_values(), [aim[0], aim[1], 1])
+            if self.counter % 10 == 0:
+                if self.tiny_slam.path.shape[0] == 1:
+                    self.tiny_slam.path = None
+                else:
+                    self.tiny_slam.path = self.tiny_slam.path[1:]
 
         return command

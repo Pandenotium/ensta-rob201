@@ -55,7 +55,7 @@ def potential_field_control(lidar, pose, goal):
 
     d_angle = np.arctan2(force[1], force[0]) - pose[2]
     #print(d_angle)
-    print(dis)
+    #print(dis)
     
     if np.abs(d_angle) > 0.05:
         #command = {"forward": 0,
@@ -63,12 +63,14 @@ def potential_field_control(lidar, pose, goal):
         command = {"forward": 0,
                "rotation": 0.3*np.sign(d_angle)}
     elif dis < 1:
+        '''
         d_angle2 = pose[2] - goal[2]
         if np.abs(d_angle2) > 0.05:
             command = {"forward": 0,
                "rotation": 0.1*d_angle2}
         else:
-            command = {"forward": 0,
+        '''
+        command = {"forward": 0,
                "rotation": 0}
     else:
         command = {"forward": np.sqrt(force[0]**2 + force[1]**2)/(5 + np.sqrt(force[0]**2 + force[1]**2)),

@@ -27,6 +27,9 @@ class TinySlam:
         # Origin of the odom frame in the map frame
         self.odom_pose_ref = np.array([0, 0, 0])
 
+        # TP6
+        self.path = None
+
     def _conv_world_to_map(self, x_world, y_world):
         """
         Convert from world coordinates to map coordinates (i.e. cell index in the grid map)
@@ -131,6 +134,32 @@ class TinySlam:
         # TODO for TP4
 
         score = 0
+        dis = lidar.get_sensor_values()
+        ang = lidar.get_ray_angles()
+
+        # remove the points that exceed the range of lidar
+        reserve = dis < lidar.max_range
+        dis = dis[reserve]
+        ang = ang[reserve]
+        r = np.stack([dis, ang], 1)
+
+        # calculate points at the odom rep
+        points = np.empty_like(r)
+        points[:, 0] = pose[0] + np.cos(r[:, 1] + pose[2]) * r[:, 0]
+        points[:, 1] = pose[1] + np.sin(r[:, 1] + pose[2]) * r[:, 0]
+
+        # transform the coord world to map
+        points_map_x, points_map_y = self._conv_world_to_map(points[:, 0], points[:, 1])
+        points_map = np.stack([points_map_x, points_map_y], 1)
+
+        # reserve the coords in the map range
+        x_reserve = points_map[:, 0] < self.occupancy_map.shape[0]
+        y_reserve = points_map[:, 1] < self.occupancy_map.shape[1]
+        reserve = x_reserve * y_reserve
+        points_map = points_map[reserve]
+
+        # sum the score
+        score += np.sum(self.occupancy_map[points_map[:, 0], points_map[:, 1]])
 
         return score
 
@@ -143,6 +172,9 @@ class TinySlam:
                         use self.odom_pose_ref if not given
         """
         # TODO for TP4
+        if odom_pose_ref is None:
+            odom_pose_ref = self.odom_pose_ref
+        odom_pose = odom + odom_pose_ref
         corrected_pose = odom_pose
 
         return corrected_pose
@@ -154,10 +186,33 @@ class TinySlam:
         odom : [x, y, theta] nparray, raw odometry position
         """
         # TODO for TP4
+        max_score = self.score(lidar, self.get_corrected_pose(odom, self.odom_pose_ref))
+        max_pos = self.odom_pose_ref
 
-        best_score = 0
+        N = 500
+        sigma = 3
+        sigma_a = 0.1
 
-        return best_score
+        # loop N times
+        for i in range(N):
+            # generate random pos
+            rand_pos = np.random.normal(0, sigma, 2)
+            rand_ang = np.random.normal(0, sigma_a, 1)
+            t_pos = max_pos
+            t_pos[0] += rand_pos[0]
+            t_pos[1] += rand_pos[1]
+            t_pos[2] += rand_ang
+            # calculate the score corresponding to the random pos
+            score = self.score(lidar, self.get_corrected_pose(odom, t_pos))
+            # if better we keep the new pos
+            if score >= max_score:
+                max_score = score
+                max_pos = t_pos
+
+        if score > 200:
+            self.odom_pose_ref = max_pos
+
+        return max_score
 
     def update_map(self, lidar, pose):
         """
@@ -190,6 +245,56 @@ class TinySlam:
         """
         # TODO for TP5
 
+        # initialization
+        openSet = [start]
+        #closeSet = []
+        cameFrom = {}
+        gScore = np.full_like(self.occupancy_map, np.inf)
+        gScore[start] = 0
+        fScore = np.full_like(self.occupancy_map, np.inf)
+        fScore[start] = np.sqrt((goal[0]-start[0])**2 + (goal[1]-start[1])**2)
+
+        while openSet:
+            t_openSet = np.array(openSet)
+            t_fScore = fScore[t_openSet[:,0], t_openSet[:,1]]
+            ind_cur = np.argmin(t_fScore)
+            current = openSet[ind_cur]
+            #print(current)
+            #self.occupancy_map[current[0], current[1]] = 1.99
+            #self.display2(self.odom_pose_ref)
+
+            # if found the path return
+            if current[0] == goal[0] and current[1] == goal[1]:
+                total_path = [current]
+                ind = current[0] * self.occupancy_map.shape[0] + current[1]
+                while ind in cameFrom.keys():
+                    current = cameFrom[ind]
+                    total_path.append(current)
+                    ind = current[0] * self.occupancy_map.shape[0] + current[1]
+                total_path.reverse()
+                self.path = np.array(total_path)
+                return total_path
+            del openSet[ind_cur]
+            #closeSet.append(current)
+            
+            # neighbours
+            neighbours = [[current[0] - 1, current[1] - 1], [current[0] - 1, current[1]], [current[0] - 1, current[1] + 1],
+                          [current[0], current[1] - 1], [current[0], current[1] + 1],
+                          [current[0] + 1, current[1] - 1], [current[0] + 1, current[1]], [current[0] + 1, current[1] + 1]]
+            for n in neighbours:
+                if self.occupancy_map[n[0], n[1]] > 1:
+                    continue
+                #if n in closeSet:
+                #    continue
+                t_gScore = gScore[current[0], current[1]] + np.sqrt((n[0]-current[0])**2 + (n[1]-current[1])**2)
+                if t_gScore < gScore[n[0], n[1]]:
+                    cameFrom[n[0]*self.occupancy_map.shape[0] + n[1]] = current
+                    gScore[n[0], n[1]] = t_gScore
+                    fScore[n[0], n[1]] = t_gScore + np.sqrt((goal[0]-n[0])**2 + (goal[1]-n[1])**2)
+                    if n not in openSet:
+                        openSet.append(n)
+        return None
+
         path = [start, goal]  # list of poses
         return path
 
@@ -220,7 +325,11 @@ class TinySlam:
         robot_pose : [x, y, theta] nparray, corrected robot pose
         """
 
-        img = cv2.flip(self.occupancy_map.T, 0)
+        disp_map = self.occupancy_map
+        if self.path is not None:
+            disp_map[self.path[:,0], self.path[:,1]] = 1.99
+
+        img = cv2.flip(disp_map.T, 0)
         img = img - img.min()
         img = img / img.max() * 255
         img = np.uint8(img)
